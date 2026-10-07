@@ -214,7 +214,7 @@ Errors are JSON: `{"error": {"code": "…", "message": "…"}}`.
 ## Testing
 
 ```bash
-python3 -m unittest discover -s tests -t tests      # 243 tests, no network needed
+python3 -m unittest discover -s tests -t tests      # 292 tests, no network needed
 node --check app/static/app.js                      # frontend syntax
 python3 tools/link_check.py                         # every user-facing external URL
 python3 tools/live_probe.py                         # every source against the live upstreams
@@ -228,9 +228,17 @@ incomplete search results, …) are caught without touching the network. `tools/
 complement: it hits the real upstreams and prints a status table, failing only when a source crashes
 (an app bug) rather than when an upstream is down (not an app bug).
 
+The live probe also verifies HIBP's **paid** API v3 path without anybody's key: HIBP documents that
+any 32-character hexadecimal value may be used as a test key against accounts on its own
+`hibp-integration-tests.com` domain, so CI runs the real `hibp_breaches` source against that address
+(no personal data involved). On the last run it returned `ok`: one breach entry parsed into two
+findings, and `pasteaccount` refusing the test key with HTTP 401 - which is exactly the
+degradation path the source is written for, so the breach result is still reported with a note.
+
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the suite, the frontend
 syntax check, a Docker build + container smoke test, the link check, and the live upstream probe on
-every push.
+every push. A failing test suite, a dead link or a crashed source is published as a check
+annotation, so results are readable without opening the raw job logs.
 
 ---
 

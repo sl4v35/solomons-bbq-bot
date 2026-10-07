@@ -160,7 +160,12 @@ def hibp_breaches(ctx: SourceContext) -> dict[str, Any]:
                 "email_count": paste.get("EmailCount"),
             })
     except UpstreamHTTPError as exc:
-        if exc.status != 404:  # 404 simply means "no pastes"
+        if exc.status == 404:
+            pass  # 404 simply means "no pastes for this address"
+        elif exc.status in (401, 403):
+            paste_note = (f"Paste search refused (HTTP {exc.status}): your HIBP key may not include paste access. "
+                          "Breach results are unaffected.")
+        else:
             paste_note = f"Paste search unavailable (HTTP {exc.status}); breach results are unaffected."
     except UpstreamRateLimited:
         paste_note = "Paste search skipped: HIBP rate-limited the API key after the breach call."

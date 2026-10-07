@@ -579,6 +579,16 @@ class HibpTests(unittest.TestCase):
         self.assertIn("Paste search failed", result.data["paste_note"])
         self.assertIn("breach results are unaffected", result.data["paste_note"])
 
+    def test_paste_401_suggests_the_key_may_not_cover_pastes(self):
+        # Observed against HIBP's own integration-test domain: the documented test
+        # key is accepted by breachedaccount but refused by pasteaccount.
+        fetcher, _ = make_fetcher(hibp_routes(pastes=(401, {})))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertEqual(result.data["breach_count"], 1)
+        self.assertIn("may not include paste access", result.data["paste_note"])
+
     def test_paste_rate_limit_is_reported_but_not_fatal(self):
         fetcher, _ = make_fetcher(hibp_routes(pastes=(429, {})))
         result = run_source("hibp_breaches",
