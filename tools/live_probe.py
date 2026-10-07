@@ -115,6 +115,45 @@ def probe_hibp_api_v3(timeout: float = 25.0) -> None:
              detail + " (HIBP's own hibp-integration-tests.com domain, dummy 32-hex test key, no personal data)")
 
 
+def probe_hibp_source() -> None:
+    """Run the real ``hibp_breaches`` source against HIBP's integration-test domain.
+
+    The probe above only checks that a hand-built request is accepted. This one
+    executes the actual source function - both authenticated calls, the flag
+    handling, the finding construction - so a change to that source is verified
+    against the live API without a paid key and without a real person's address.
+    """
+    from app.http_client import DEFAULT_FETCHER
+    from app.identifiers import detect
+    from app.sources import registry
+    from app.sources.base import SourceContext, execute
+
+    try:
+        spec = registry()["hibp_breaches"]
+        identifier = detect(HIBP_TEST_ACCOUNT, forced_type="email")
+        context = SourceContext(identifier=identifier, keys={"hibp": HIBP_TEST_KEY},
+                                mode="osint", fetcher=DEFAULT_FETCHER)
+        started = time.monotonic()
+        result = execute(spec, context)
+    except Exception as exc:  # noqa: BLE001
+        print(row("hibp_breaches(source)", "CRASH", "-", f"{type(exc).__name__}: {exc}"))
+        annotate("error", "hibp_breaches source crashed against HIBP's test domain",
+                 f"{type(exc).__name__}: {exc}")
+        return
+
+    elapsed = f"{(time.monotonic() - started) * 1000:.0f}ms"
+    data = result.data or {}
+    detail = (f"{result.status}; {data.get('breach_count', 0)} breach(es) "
+              f"({len([b for b in data.get('breaches', []) if not (b.get('is_spam_list') or b.get('is_fabricated') or b.get('is_malware'))])} credible), "
+              f"{data.get('paste_count', 0)} paste(s), {len(result.findings or [])} finding(s)")
+    if data.get("paste_note"):
+        detail += f"; {data['paste_note']}"
+    print(row("hibp_breaches(source)", result.status, elapsed, detail))
+    level = "notice" if result.status in ("ok", "no_match") else "warning"
+    annotate(level, f"hibp_breaches source against HIBP's test domain: {result.status}",
+             detail + " (integration-test domain, dummy 32-hex test key, no personal data)")
+
+
 def probe_sources(timeout_per_source: float) -> int:
     from app.config import SETTINGS
     from app.http_client import DEFAULT_FETCHER
@@ -160,6 +199,7 @@ def probe_sources(timeout_per_source: float) -> int:
 
     print("\n-- HIBP API v3 authenticated path (documented test key, test domain) --")
     probe_hibp_api_v3()
+    probe_hibp_source()
 
     print("\nstatus counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"sources that really answered (ok/no_match): {len(checked)}/{len(specs)}")
