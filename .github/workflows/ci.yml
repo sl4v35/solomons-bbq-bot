@@ -54,7 +54,34 @@ jobs:
           PY
 
       - name: Run the test suite
-        run: python -m unittest discover -s tests -t tests -v
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -t tests -v 2>&1 | tee /tmp/tests.log
+
+      - name: Surface test failures as annotations
+        if: failure()
+        run: |
+          python - <<'PY'
+          import pathlib, re
+
+          log = pathlib.Path("/tmp/tests.log").read_text(errors="replace")
+
+          def safe(text):
+              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")[:700]
+
+          blocks = re.findall(
+              r"^(FAIL|ERROR): (\S+).*?\n-+\n(.*?)(?=\n(?:FAIL|ERROR): |\n-+\nRan |\Z)",
+              log, re.S | re.M)
+          if not blocks:
+              tail = " ".join(log.splitlines()[-25:])
+              print(f"::error title=test suite failed::{safe(tail)}")
+          for level, name, body in blocks[:9]:
+              last = [line.strip() for line in body.strip().splitlines() if line.strip()]
+              summary = " ".join(last[-6:])
+              print(f"::error title={safe(level + ': ' + name)}::{safe(summary)}")
+          print(f"::notice title=test summary::{' '.join(log.splitlines()[-3:])}")
+          PY
 
       - uses: actions/setup-node@v4
         with:

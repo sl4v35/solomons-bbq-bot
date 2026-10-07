@@ -76,6 +76,7 @@ def probe_sources(timeout_per_source: float) -> int:
     counts: dict[str, int] = {}
     crashed: list[str] = []
     checked: list[str] = []
+    grouped: dict[str, list[str]] = {"answered": [], "not-answered": [], "crashed": []}
 
     for spec in specs:
         kind = spec.applies_to[0] if spec.applies_to else "domain"
@@ -99,17 +100,21 @@ def probe_sources(timeout_per_source: float) -> int:
         if result.status in ("ok", "no_match"):
             checked.append(spec.id)
         print(row(spec.id, result.status, elapsed, detail))
-        level = "error" if result.status == "error" else (
-            "notice" if result.status in ("ok", "no_match") else "warning")
-        annotate(level, f"{spec.id}: {result.status} ({elapsed})", detail[:400])
+        bucket = ("answered" if result.status in ("ok", "no_match")
+                  else ("crashed" if result.status == "error" else "not-answered"))
+        grouped[bucket].append(f"{spec.id}={result.status}")
         if not timeout_per_source:
             continue
 
     print("\nstatus counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"sources that really answered (ok/no_match): {len(checked)}/{len(specs)}")
-    annotate("notice", "live probe summary",
-             f"{len(checked)}/{len(specs)} sources answered; "
-             + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    # GitHub caps annotations per run, so report one aggregated annotation per class.
+    annotate("notice", f"answered: {len(grouped['answered'])}/{len(specs)}",
+             ", ".join(grouped["answered"]) or "none")
+    annotate("warning", f"not answered: {len(grouped['not-answered'])}",
+             ", ".join(grouped["not-answered"]) or "none")
+    if grouped["crashed"]:
+        annotate("error", f"crashed: {len(grouped['crashed'])}", ", ".join(grouped["crashed"]))
     if crashed:
         print(f"\nAPP BUGS - these sources crashed or returned 'error': {', '.join(crashed)}")
         return 1
