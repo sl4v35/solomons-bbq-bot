@@ -800,7 +800,10 @@
       statusBox.textContent = "Requesting the public range for prefix " + prefix + "… (only these five characters are sent)";
       return api("/api/password-range", { method: "POST", body: { prefix: prefix } }).then(function (payload) {
         var match = null;
-        (payload.entries || []).forEach(function (entry) { if (entry.suffix === suffix) { match = entry; } });
+        (payload.entries || []).forEach(function (entry) {
+          // A count of 0 would be one of HIBP's padding entries, not a real match.
+          if (entry.suffix === suffix && entry.count > 0) { match = entry; }
+        });
         renderPasswordResult(match, payload, prefix);
         input.value = "";
         statusBox.textContent = "Done. The input field was cleared; nothing was stored.";
@@ -821,12 +824,12 @@
       box.appendChild(el("div", { class: "notice notice-bad" }, [
         el("strong", { text: "This password appears in the Pwned Passwords corpus " + match.count.toLocaleString() + " time(s)." }),
         el("p", { class: "small", text: "It has been exposed in known breaches and must be treated as compromised. Do not use it anywhere, and change it anywhere it was reused. Count comes from HIBP's k-anonymity range API." }),
-        el("p", { class: "small muted", text: "Sent to HIBP: the prefix " + prefix + " only. Compared locally: the remaining 35 hash characters. Retrieved entries in that range: " + payload.entry_count + "." })
+        el("p", { class: "small muted", text: "Sent to HIBP: the prefix " + prefix + " only. Compared locally: the remaining 35 hash characters. Real entries in that range: " + payload.entry_count + (payload.padding_discarded ? " (" + payload.padding_discarded + " padding entries discarded)" : "") + "." })
       ]));
     } else {
       box.appendChild(el("div", { class: "notice notice-ok" }, [
         el("strong", { text: "Not found in the Pwned Passwords corpus." }),
-        el("p", { class: "small", text: "The hash suffix was not present among the " + payload.entry_count + " entries returned for prefix " + prefix + ". That means it is not in HIBP's corpus - it does not mean the password is strong, and it may still appear in breaches HIBP has not received." }),
+        el("p", { class: "small", text: "The hash suffix was not present among the " + (payload.returned_count || payload.entry_count) + " entries HIBP returned for prefix " + prefix + ". That means it is not in HIBP's corpus - it does not mean the password is strong, and it may still appear in breaches HIBP has not received." }),
         el("p", { class: "small muted", text: "Sent to HIBP: the prefix " + prefix + " only. The full hash never left your browser." })
       ]));
     }

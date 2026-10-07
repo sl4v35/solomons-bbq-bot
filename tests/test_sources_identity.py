@@ -21,6 +21,9 @@ from stubs import (
     GITLAB_USER,
     GRAVATAR_PROFILE,
     HIBP_BREACHES,
+    HIBP_PASTES,
+    HIBP_SPAMMY_BREACHES,
+    HIBP_STEALER_LOG_BREACHES,
     HN_USER,
     HN_USER_EMAIL,
     KEYBASE_LIST,
@@ -32,6 +35,7 @@ from stubs import (
     WIKI_OPENSEARCH_NONE,
     WIKI_SEARCH,
     context_for,
+    hibp_routes,
     make_fetcher,
     run_source,
 )
@@ -438,8 +442,10 @@ class EthereumTests(unittest.TestCase):
 
 
 class HibpTests(unittest.TestCase):
+    """HIBP API v3: key-gated, two authenticated calls, documented status codes."""
+
     def test_without_key_nothing_is_sent(self):
-        fetcher, transport = make_fetcher([(r"haveibeenpwned\.com/api/v3/breachedaccount", HIBP_BREACHES)])
+        fetcher, transport = make_fetcher(hibp_routes())
         result = run_source("hibp_breaches", context_for("person@example.com", fetcher=fetcher))
         self.assertEqual(result.status, STATUS_NOT_CHECKED)
         self.assertEqual(transport.calls, [])
@@ -447,36 +453,138 @@ class HibpTests(unittest.TestCase):
         self.assertIn("Settings", result.hint)
         # The k-anonymity password check must still be advertised as keyless.
         self.assertIn("k-anonymity", result.message)
+        # The hint tells the truth about what a key costs and how fast it is.
+        self.assertIn("3.95", result.hint)
+        self.assertIn("10 authenticated requests per minute", result.hint)
 
     def test_with_key_the_email_is_sent_with_a_disclosure(self):
-        fetcher, transport = make_fetcher([(r"haveibeenpwned\.com/api/v3/breachedaccount", HIBP_BREACHES)])
+        fetcher, transport = make_fetcher(hibp_routes())
         result = run_source("hibp_breaches",
                             context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
         self.assertEqual(result.status, STATUS_OK)
         self.assertEqual(result.data["breach_count"], 1)
+        self.assertEqual(result.data["api_version"], "v3")
         self.assertEqual(transport.calls[0]["headers"]["hibp-api-key"], "HIBPKEY")
         self.assertIn("person%40example.com", transport.calls[0]["url"])
         self.assertIn("full email address", result.sends)  # disclosed to the user up front
         self.assertTrue(any(f.severity == "high" and "Passwords were exposed" in f.title for f in result.findings))
 
-    def test_no_breaches_is_no_match(self):
-        fetcher, _ = make_fetcher([(r"haveibeenpwned\.com/api/v3/breachedaccount", (404, {}))])
+    def test_both_calls_send_the_key_and_a_descriptive_user_agent(self):
+        # HIBP returns 401 without the key and 403 without a user-agent header.
+        fetcher, transport = make_fetcher(hibp_routes(pastes=HIBP_PASTES))
+        run_source("hibp_breaches", context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(len(transport.calls), 2)
+        for call in transport.calls:
+            self.assertEqual(call["headers"]["hibp-api-key"], "HIBPKEY")
+            self.assertTrue(call["headers"]["User-Agent"].strip(), "HIBP requires a descriptive user agent")
+            self.assertIn("Verdigris", call["headers"]["User-Agent"])
+        self.assertIn("/api/v3/breachedaccount/", transport.calls[0]["url"])
+        self.assertIn("/api/v3/pasteaccount/", transport.calls[1]["url"])
+        # Full breach model, unverified entries included - both documented defaults
+        # are made explicit rather than left to change underneath us.
+        self.assertIn("truncateResponse=false", transport.calls[0]["url"])
+        self.assertIn("includeUnverified=true", transport.calls[0]["url"])
+
+    def test_paste_appearances_are_reported_as_their_own_finding(self):
+        fetcher, _ = make_fetcher(hibp_routes(pastes=HIBP_PASTES))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertEqual(result.data["paste_count"], 2)
+        paste_findings = [f for f in result.findings if "paste" in f.title.lower()]
+        self.assertEqual(len(paste_findings), 1)
+        self.assertIn("Pastebin", paste_findings[0].evidence[0].label)
+        # Pastes are unverified and transient; the report must say so.
+        self.assertIn("transient", paste_findings[0].interpretation.lower())
+
+    def test_entries_hibp_flags_are_not_counted_as_credible_breaches(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=HIBP_SPAMMY_BREACHES))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertEqual(result.data["breach_count"], 2)
+        finding = result.findings[0]
+        self.assertEqual(finding.severity, "low")  # no credible breach, no password exposure claim
+        self.assertIn("spam list", finding.title.lower())
+        labels = " ".join(e.label for e in finding.evidence)
+        self.assertIn("Entries HIBP flags as spam list, fabricated or malware", labels)
+        self.assertIn("Credible breaches", labels)
+        credible = [e for e in finding.evidence if e.label == "Credible breaches"][0]
+        self.assertEqual(credible.value, "0")
+
+    def test_stealer_log_entries_are_labelled_as_such(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=HIBP_STEALER_LOG_BREACHES))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        labels = " ".join(e.label for e in result.findings[0].evidence)
+        self.assertIn("Entries sourced from stealer logs", labels)
+
+    def test_display_uses_the_title_and_the_link_uses_the_internal_name(self):
+        fetcher, _ = make_fetcher(hibp_routes())
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        links = {e.label: e.value for e in result.findings[0].links}
+        self.assertIn("Adobe", links)  # Title is what HIBP says to show people
+        self.assertEqual(links["Adobe"], "https://haveibeenpwned.com/breach/Adobe")
+
+    def test_no_breaches_is_no_match_and_says_what_the_api_hides(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=(404, {})))
         result = run_source("hibp_breaches",
                             context_for("clean@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
         self.assertEqual(result.status, STATUS_NO_MATCH)
+        self.assertIn("sensitive or retired breaches", result.message)
+        self.assertNotIn("guarantee", result.message.replace("not a guarantee", ""))
 
-    def test_bad_key_is_unavailable(self):
-        fetcher, _ = make_fetcher([(r"haveibeenpwned\.com/api/v3/breachedaccount", (401, {}))])
+    def test_no_breaches_but_pastes_found_is_a_real_result(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=(404, {}), pastes=HIBP_PASTES))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertEqual(result.data["breach_count"], 0)
+        self.assertEqual(result.data["paste_count"], 2)
+
+    def test_bad_key_is_unavailable_and_blames_the_key(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=(401, {})))
         result = run_source("hibp_breaches",
                             context_for("person@example.com", fetcher=fetcher, keys={"hibp": "BAD"}))
         self.assertEqual(result.status, STATUS_UNAVAILABLE)
         self.assertIn("key", result.message.lower())
+        self.assertIn("401", result.message)
 
-    def test_rate_limit_mentions_the_daily_cap(self):
-        fetcher, _ = make_fetcher([(r"haveibeenpwned\.com/api/v3/breachedaccount", (429, {}))])
+    def test_403_is_not_blamed_on_the_key(self):
+        # Per HIBP's docs, 403 means "no user agent was specified", not a bad key.
+        fetcher, _ = make_fetcher(hibp_routes(breaches=(403, {})))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_UNAVAILABLE)
+        self.assertIn("user-agent", result.message.lower())
+        self.assertNotIn("rejected the api key", result.message.lower())
+
+    def test_rate_limit_explains_that_hibp_limits_per_key(self):
+        fetcher, _ = make_fetcher(hibp_routes(breaches=(429, {})))
         result = run_source("hibp_breaches",
                             context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
         self.assertEqual(result.status, STATUS_RATE_LIMITED)
+        self.assertIn("per key", result.message)
+        self.assertNotIn("shared IP", result.message)  # that would be wrong for HIBP
+        self.assertNotIn("1.5s", result.message)       # the retired v2-era limit
+
+    def test_paste_failure_does_not_hide_the_breach_result(self):
+        fetcher, _ = make_fetcher(hibp_routes(pastes=UpstreamTimeout("timed out")))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertEqual(result.data["breach_count"], 1)
+        self.assertEqual(result.data["paste_count"], 0)
+        self.assertIn("Paste search failed", result.data["paste_note"])
+        self.assertIn("breach results are unaffected", result.data["paste_note"])
+
+    def test_paste_rate_limit_is_reported_but_not_fatal(self):
+        fetcher, _ = make_fetcher(hibp_routes(pastes=(429, {})))
+        result = run_source("hibp_breaches",
+                            context_for("person@example.com", fetcher=fetcher, keys={"hibp": "HIBPKEY"}))
+        self.assertEqual(result.status, STATUS_OK)
+        self.assertIn("rate-limited", result.data["paste_note"])
 
 
 if __name__ == "__main__":

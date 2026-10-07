@@ -46,7 +46,7 @@ def fetch_range(prefix: str, fetcher: Any) -> dict[str, Any]:
         cache_key=f"hibp-range:{upper}",
         cache_ttl=SETTINGS.limits.cache_feed_ttl,
     )
-    entries: list[dict[str, Any]] = []
+    parsed: list[dict[str, Any]] = []
     for line in text.replace("\r", "\n").split("\n"):
         line = line.strip()
         if not line or ":" not in line:
@@ -56,19 +56,30 @@ def fetch_range(prefix: str, fetcher: Any) -> dict[str, Any]:
         if len(suffix) != 35 or not re.fullmatch(r"[0-9A-F]{35}", suffix):
             continue
         try:
-            entries.append({"suffix": suffix, "count": int(count.strip())})
+            parsed.append({"suffix": suffix, "count": int(count.strip())})
         except ValueError:
             continue
-    if not entries:
+    if not parsed:
         raise UpstreamError("HIBP returned an empty or unparsable range response", kind="parse-error")
+    # We ask HIBP for padding (``Add-Padding: true``) so the response size does not
+    # reveal how common the queried prefix is. HIBP documents that padded entries
+    # always carry a count of 0 and should be discarded, so they are dropped here
+    # rather than being handed to the browser. An empty ``entries`` list with a
+    # non-empty ``parsed`` list is a legitimate "not in the corpus" answer, not an
+    # error.
+    entries = [entry for entry in parsed if entry["count"] > 0]
     return {
         "prefix": upper,
         "entries": entries,
         "entry_count": len(entries),
+        "returned_count": len(parsed),
+        "padding_discarded": len(parsed) - len(entries),
         "upstream_host": "api.pwnedpasswords.com",
         "checked_at": utcnow_iso(),
         "note": (
             "Only the five-character prefix above was sent to HIBP. The remaining 35 hash characters "
-            "stay in your browser, where the comparison happens."
+            "stay in your browser, where the comparison happens. Padding was requested (Add-Padding: true) "
+            "so the response size does not reveal how common the prefix is; HIBP's padded entries always "
+            "have a count of 0 and were discarded here."
         ),
     }

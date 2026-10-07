@@ -32,7 +32,7 @@ services:
       - key: ACCESS_TOKEN
         value: ""          # set this to require a token for /api/* (see README)
       - key: HIBP_API_KEY
-        value: ""          # unlocks Have I Been Pwned email-breach lookups
+        value: ""          # unlocks Have I Been Pwned API v3 email breach + paste lookups (paid)
       - key: VIRUSTOTAL_API_KEY
         value: ""          # unlocks VirusTotal domain reports
       - key: ABUSECH_AUTH_KEY

@@ -63,6 +63,58 @@ def annotate(level: str, title: str, message: str) -> None:
     print(f"::{level} title={safe_title}::{safe_message}")
 
 
+# HIBP documents that any 32-character hexadecimal value may be used as a test
+# key for accounts on its own integration-test domain, so CI can verify the
+# authenticated request shape without anybody's paid key and without sending a
+# real person's email address anywhere.
+HIBP_TEST_KEY = "0" * 32
+HIBP_TEST_ACCOUNT = "account-exists@hibp-integration-tests.com"
+
+
+def probe_hibp_api_v3(timeout: float = 25.0) -> None:
+    """Exercise HIBP's key-gated API v3 path against its integration-test domain."""
+    url = ("https://haveibeenpwned.com/api/v3/breachedaccount/"
+           + urllib.parse.quote(HIBP_TEST_ACCOUNT) + "?truncateResponse=true")
+    headers = {"hibp-api-key": HIBP_TEST_KEY,
+               "User-Agent": "Verdigris CI live probe (HIBP integration-test domain)"}
+    started = time.monotonic()
+    try:
+        request = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status, body = response.status, response.read(65536)
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        try:
+            body = exc.read(4096)
+        except Exception:  # noqa: BLE001
+            body = b""
+    except Exception as exc:  # noqa: BLE001 - transport failure is itself the finding
+        elapsed = f"{(time.monotonic() - started) * 1000:.0f}ms"
+        print(row("hibp_api_v3_test_key", "ERR", elapsed, f"{type(exc).__name__}: {exc}"))
+        annotate("warning", "HIBP API v3 authenticated path unreachable",
+                 f"{type(exc).__name__}: {exc}")
+        return
+
+    elapsed = f"{(time.monotonic() - started) * 1000:.0f}ms"
+    if status == 200:
+        try:
+            names = [str(b.get("Name") or "") for b in json.loads(body) if isinstance(b, dict)]
+        except ValueError:
+            names = []
+        detail = "HTTP 200; breaches for the test account: " + (", ".join(n for n in names if n)[:80] or "none")
+    elif status in (401, 403):
+        detail = (f"HTTP {status}; HIBP refused the documented test key / user-agent, so the "
+                  "authenticated path could not be verified without a paid key")
+    elif status == 404:
+        detail = "HTTP 404; the endpoint answered (no breaches for the test account)"
+    else:
+        detail = f"HTTP {status}"
+    print(row("hibp_api_v3_test_key", "ok" if status in (200, 404) else f"http-{status}", elapsed, detail))
+    annotate("notice" if status in (200, 404) else "warning",
+             f"HIBP API v3 authenticated path: HTTP {status}",
+             detail + " (HIBP's own hibp-integration-tests.com domain, dummy 32-hex test key, no personal data)")
+
+
 def probe_sources(timeout_per_source: float) -> int:
     from app.config import SETTINGS
     from app.http_client import DEFAULT_FETCHER
@@ -105,6 +157,9 @@ def probe_sources(timeout_per_source: float) -> int:
         grouped[bucket].append(f"{spec.id}={result.status}")
         if not timeout_per_source:
             continue
+
+    print("\n-- HIBP API v3 authenticated path (documented test key, test domain) --")
+    probe_hibp_api_v3()
 
     print("\nstatus counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"sources that really answered (ok/no_match): {len(checked)}/{len(specs)}")

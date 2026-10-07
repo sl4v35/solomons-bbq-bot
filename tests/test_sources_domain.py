@@ -9,6 +9,8 @@ from stubs import (
     BLOCKSTREAM_UNUSED,
     DOH_NXDOMAIN,
     HIBP_RANGE,
+    HIBP_RANGE_ONLY_PADDING,
+    HIBP_RANGE_WITH_PADDING,
     OPENPHISH_FEED,
     OTX_EMPTY,
     OTX_POPULAR,
@@ -372,6 +374,39 @@ class PasswordRangeTests(unittest.TestCase):
         # The full SHA-1 (and obviously the password itself) must never leave the browser.
         self.assertNotIn("61e4c9b93f3f0682250b6cf8331b7ee68fd8", transport.calls[0]["url"])
         self.assertFalse(transport.calls[0]["body"])  # GET with no request body
+
+    def test_add_padding_and_user_agent_are_sent(self):
+        # HIBP requires a user-agent (403 without one) and documents Add-Padding
+        # as the way to stop the response size leaking how common a prefix is.
+        fetcher, transport = make_fetcher([(r"api\.pwnedpasswords\.com/range/", HIBP_RANGE)])
+        from app.passwords import fetch_range
+
+        fetch_range("5baa6", fetcher)
+        headers = transport.calls[0]["headers"]
+        self.assertEqual(headers["Add-Padding"], "true")
+        self.assertTrue(headers["User-Agent"].strip())
+
+    def test_padding_entries_are_discarded(self):
+        # HIBP: padded entries always have a count of 0 and "should be discarded".
+        fetcher, _ = make_fetcher([(r"api\.pwnedpasswords\.com/range/", HIBP_RANGE_WITH_PADDING)])
+        from app.passwords import fetch_range
+
+        payload = fetch_range("5baa6", fetcher)
+        self.assertEqual(payload["returned_count"], 5)
+        self.assertEqual(payload["padding_discarded"], 2)
+        self.assertEqual(payload["entry_count"], 3)
+        self.assertTrue(all(entry["count"] > 0 for entry in payload["entries"]))
+        self.assertNotIn("00000000000000000000000000000000000",
+                         [entry["suffix"] for entry in payload["entries"]])
+
+    def test_an_all_padding_response_is_a_legitimate_no_match(self):
+        fetcher, _ = make_fetcher([(r"api\.pwnedpasswords\.com/range/", HIBP_RANGE_ONLY_PADDING)])
+        from app.passwords import fetch_range
+
+        payload = fetch_range("5baa6", fetcher)
+        self.assertEqual(payload["entries"], [])
+        self.assertEqual(payload["entry_count"], 0)
+        self.assertEqual(payload["padding_discarded"], 2)
 
     def test_invalid_prefix_is_rejected(self):
         fetcher, transport = make_fetcher([])

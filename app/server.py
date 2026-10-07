@@ -132,6 +132,33 @@ class RequestHandler(BaseHTTPRequestHandler):
     server_version = f"{APP_NAME}/{APP_VERSION}"
     sys_version = ""
     protocol_version = "HTTP/1.1"
+    # A public deployment with no authentication will attract clients that open a
+    # connection and then send nothing. Bound how long one request may hold a
+    # worker thread; the socket timeout applies to reads and writes alike.
+    timeout = 60
+
+    # Refusing a body we are not going to read is only half the job: see
+    # _drain_body() below.
+    MAX_DRAIN_BYTES = 8 * 1024 * 1024
+
+    def _drain_body(self, length: int) -> None:
+        """Read and discard a request body we are about to refuse.
+
+        Replying ``400`` while the client is still writing the body makes
+        well-behaved clients die with a broken pipe instead of reading the error
+        we sent (this reproduced as a test failure on Python 3.12 and would hit a
+        real browser just the same). The declared body is therefore drained
+        first, bounded so a hostile Content-Length cannot make us read forever.
+        """
+        remaining = max(0, min(length, self.MAX_DRAIN_BYTES))
+        while remaining > 0:
+            try:
+                chunk = self.rfile.read(min(65536, remaining))
+            except (BrokenPipeError, ConnectionResetError, socket.timeout, TimeoutError, OSError):
+                return  # the client gave up; nothing left to drain
+            if not chunk:
+                return
+            remaining -= len(chunk)
 
     # -- plumbing -----------------------------------------------------------
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: A003
@@ -181,6 +208,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if length <= 0:
             return {}
         if length > SETTINGS.limits.max_body_bytes:
+            self._drain_body(length)
             raise ValueError(f"Request body too large (limit {SETTINGS.limits.max_body_bytes} bytes)")
         raw = self.rfile.read(length)
         if not raw:
@@ -304,7 +332,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 },
                 "auth_required": bool(SETTINGS.access_token),
                 "optional_keys": [
-                    {"key": "hibp", "label": "Have I Been Pwned API key", "unlocks": "Email breach lookups",
+                    {"key": "hibp", "label": "Have I Been Pwned API key (paid)",
+                     "unlocks": "Email breach and paste lookups via HIBP API v3. The entry tier is about "
+                                "US$3.95/month and allows ~10 authenticated requests per minute; the "
+                                "password-exposure check stays free and keyless either way.",
                      "where": "https://haveibeenpwned.com/API/Key"},
                     {"key": "virustotal", "label": "VirusTotal API key", "unlocks": "Vendor detection counts for domains",
                      "where": "https://www.virustotal.com/gui/user/<you>/apikey"},

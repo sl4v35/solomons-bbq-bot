@@ -57,8 +57,8 @@ resource.
 | Honest absence | The UI legend keeps four states apart and never collapses them: **Data returned**, **No matches** (we looked, nothing there), **Not checked** (we deliberately did not look — not applicable, or it needs an API key you did not supply) and **Source unavailable** / **Rate limited** (we tried and it failed, which is *not* a clean result). |
 | Coverage block | Every report states how many sources answered, how many found nothing, how many were skipped and how many failed, plus the exact list of upstream hosts contacted. |
 | History | Stored in your browser only (`localStorage`), with per-entry delete, delete-all, and JSON export. Password checks are never added to history. |
-| Optional keys | HIBP, VirusTotal, abuse.ch, GitHub, urlscan.io and OTX keys can be added in Settings. They stay in your browser and are sent per request; the server never logs or stores them. |
-| Password exposure check | Uses HIBP's k-anonymity API. Your password is hashed **in the browser** (SHA-1), only the first 5 hex characters are sent to this server, and only those 5 characters are forwarded to `api.pwnedpasswords.com`. The full password and full hash never leave your device. No endpoint in this app accepts a password. |
+| Optional keys | HIBP, VirusTotal, abuse.ch, GitHub, urlscan.io and OTX keys can be added in Settings. They stay in your browser and are sent per request; the server never logs or stores them. HIBP's API v3 is **paid**: the entry tier is about US$3.95/month and allows roughly 10 authenticated requests per minute, limited **per key** rather than per IP (this source spends up to two of those per scan: breaches, then pastes). |
+| Password exposure check | Uses HIBP's **free, keyless** k-anonymity API. Your password is hashed **in the browser** (SHA-1), only the first 5 hex characters are sent to this server, and only those 5 characters are forwarded to `api.pwnedpasswords.com`. The full password and full hash never leave your device, and no endpoint in this app accepts a password. The request sends `Add-Padding: true`, so HIBP pads the response and its size does not reveal how common your prefix is; HIBP documents padded entries as always having a count of `0`, and this server discards them before the browser compares suffixes locally. |
 | Removal links | Real removal/reporting/dispute pages per identifier type. Verdigris only opens them in a new tab — it never fills in or submits anything, and it never claims a request was made. |
 
 ### What it deliberately does not do
@@ -91,7 +91,7 @@ what it sends, and the same list is served at `/api/meta`.
 | `wayback` | Internet Archive Wayback Machine | archives | domain, email | - |
 | `blockstream_btc` | Bitcoin address (Blockstream) | blockchain | bitcoin | - |
 | `ethereum_rpc` | Ethereum address (public JSON-RPC) | blockchain | ethereum | - |
-| `hibp_breaches` | Have I Been Pwned (your key) | breaches | email | hibp |
+| `hibp_breaches` | Have I Been Pwned (your key) — API v3 breaches *and* pastes | breaches | email | hibp |
 | `codeberg_user` | Codeberg profile | code-hosting | username | - |
 | `github_commits` | GitHub commit author search | code-hosting | email | - |
 | `github_name` | GitHub people search | code-hosting | name | - |
@@ -175,7 +175,7 @@ All optional. See [`.env.example`](.env.example).
 | --- | --- | --- |
 | `PORT` | `8080` | Port to bind. Render injects this. The bind address is always `0.0.0.0` (containers require it); use `python3 -m app.server --host 127.0.0.1` to change it locally. |
 | `ACCESS_TOKEN` | empty | If set, every `/api/*` call needs `X-Access-Token: <token>` (or `Authorization: Bearer <token>`). `/health` and the static UI stay open so the token can be entered in Settings. |
-| `HIBP_API_KEY` | empty | Server-side HIBP key for email-breach lookups (users can also supply their own per request). |
+| `HIBP_API_KEY` | empty | Server-side HIBP API v3 key for email breach + paste lookups (users can also supply their own per request). Paid: entry tier ≈ US$3.95/month, ~10 authenticated requests/minute per key. |
 | `VIRUSTOTAL_API_KEY` | empty | Server-side VirusTotal key for domain reports. |
 | `ABUSECH_AUTH_KEY` | empty | Free abuse.ch `Auth-Key` enabling the full URLhaus host history. |
 | `GITHUB_TOKEN` | empty | Raises GitHub API rate limits (shared-IP deployments benefit most). |

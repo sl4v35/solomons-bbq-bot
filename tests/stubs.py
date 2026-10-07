@@ -327,9 +327,54 @@ HIBP_RANGE = """1E4C9B93F3F0682250B6CF8331B7EE68FD8:3735919
 
 HIBP_BREACHES = [{
     "Name": "Adobe", "Title": "Adobe", "Domain": "adobe.com", "BreachDate": "2013-10-04",
-    "AddedDate": "2013-12-04T00:00:00Z", "PwnCount": 152445165, "IsVerified": True,
-    "IsSensitive": False, "DataClasses": ["Email addresses", "Password hints", "Passwords", "Usernames"],
+    "AddedDate": "2013-12-04T00:00:00Z", "ModifiedDate": "2022-05-15T23:52:49Z",
+    "PwnCount": 152445165, "IsVerified": True,
+    "IsSensitive": False, "IsFabricated": False, "IsRetired": False, "IsSpamList": False,
+    "IsMalware": False, "IsStealerLog": False,
+    "DataClasses": ["Email addresses", "Password hints", "Passwords", "Usernames"],
 }]
+
+# HIBP flags some entries as spam lists, fabricated or malware; they are returned
+# by the API but must not be presented as credible breaches.
+HIBP_SPAMMY_BREACHES = [
+    {"Name": "AntiPublicCombo", "Title": "Anti Public Combo List", "Domain": "",
+     "BreachDate": "2016-07-01", "AddedDate": "2017-12-05T12:00:00Z", "PwnCount": 457962538,
+     "IsVerified": False, "IsSensitive": False, "IsFabricated": False, "IsRetired": False,
+     "IsSpamList": True, "IsMalware": False, "IsStealerLog": False,
+     "DataClasses": ["Email addresses", "Passwords"]},
+    {"Name": "SomeFabricatedSet", "Title": "A fabricated list", "Domain": "",
+     "BreachDate": "2019-01-01", "AddedDate": "2019-02-01T00:00:00Z", "PwnCount": 1000,
+     "IsVerified": False, "IsSensitive": False, "IsFabricated": True, "IsRetired": False,
+     "IsSpamList": False, "IsMalware": False, "IsStealerLog": False,
+     "DataClasses": ["Email addresses"]},
+]
+
+HIBP_STEALER_LOG_BREACHES = [{
+    "Name": "StealerLogs2024", "Title": "Stealer logs (2024)", "Domain": "",
+    "BreachDate": "2024-03-01", "AddedDate": "2024-04-01T00:00:00Z", "PwnCount": 12345,
+    "IsVerified": True, "IsSensitive": False, "IsFabricated": False, "IsRetired": False,
+    "IsSpamList": False, "IsMalware": False, "IsStealerLog": True,
+    "DataClasses": ["Email addresses", "Passwords", "IP addresses"],
+}]
+
+HIBP_PASTES = [
+    {"Source": "Pastebin", "Id": "aB3dE5fG", "Title": "Leaked accounts",
+     "Date": "2021-06-23T17:16:29Z", "EmailCount": 17},
+    {"Source": "Pastie", "Id": "778123", "Title": None, "Date": None, "EmailCount": None},
+]
+
+# HIBP pads range responses when ``Add-Padding: true`` is sent; padded entries
+# always have a count of 0 and are documented as "should be discarded".
+HIBP_RANGE_WITH_PADDING = """1E4C9B93F3F0682250B6CF8331B7EE68FD8:3735919
+593BA639E0E2F6CAE5D16F8B4E0B3AC0DA2:1
+00000000000000000000000000000000000:0
+0018B52A0B5739BCC905BB28E231EF9B11C:3
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0
+"""
+
+HIBP_RANGE_ONLY_PADDING = """00000000000000000000000000000000000:0
+11111111111111111111111111111111111:0
+"""
 
 VIRUSTOTAL_DOMAIN = {"data": {"id": "example.com", "type": "domain", "attributes": {
     "last_analysis_stats": {"malicious": 0, "suspicious": 0, "harmless": 89, "undetected": 3},
@@ -414,6 +459,18 @@ def make_fetcher(routes: list[tuple[str, Any]] | None = None, default: Any = Non
     transport = StubTransport(routes, default=default)
     fetcher = Fetcher(transport=transport, cache=TTLCache(max_entries=32, default_ttl=60))
     return fetcher, transport
+
+
+def hibp_routes(breaches: Any = None, pastes: Any = None) -> list[tuple[str, Any]]:
+    """Routes for HIBP API v3, which this app calls twice: breaches, then pastes.
+
+    ``None`` means "the documented success shape" for breaches and "404, nothing
+    found" for pastes.
+    """
+    return [
+        (r"haveibeenpwned\.com/api/v3/breachedaccount", HIBP_BREACHES if breaches is None else breaches),
+        (r"haveibeenpwned\.com/api/v3/pasteaccount", (404, {}) if pastes is None else pastes),
+    ]
 
 
 def dns_routes(domain: str = "example.com", *, fail_types: tuple[str, ...] = ()) -> list[tuple[str, Any]]:

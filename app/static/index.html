@@ -157,7 +157,10 @@
       <p class="muted">The password is hashed <strong>in your browser</strong> with SHA-1. Only the first five characters of
         that hash are sent - to this server, and then to <code>api.pwnedpasswords.com</code>. The remaining 35 characters,
         the full hash and the password itself are never transmitted to this server, never stored and never logged.
-        This app has no endpoint that accepts a password.</p>
+        This app has no endpoint that accepts a password. This check is free and needs no API key. The request asks HIBP
+        to <strong>pad</strong> its answer, so the size of the response does not reveal how common your prefix is; the
+        padding entries (always a count of <code>0</code>) are discarded before your browser compares the remaining 35
+        characters locally.</p>
       <div class="pw-row">
         <input id="pw-input" class="input input-lg" type="password" autocomplete="off" spellcheck="false"
                placeholder="Type a password to test" aria-label="Password to check">
