@@ -367,7 +367,7 @@ def _parse_iso(value: str | None) -> datetime | None:
     category="registry",
     applies_to=("domain", "email"),
     sends="The domain name only.",
-    docs="https://www.iana.org/assignments/rdap-dns-parameters/rdap-dns-parameters.xhtml",
+    docs="https://about.rdap.org/",
     description="Registration data (registrar, created/updated/expires, status codes, nameservers) from the registry's RDAP server.",
 )
 def rdap(ctx: SourceContext) -> dict[str, Any]:

@@ -40,9 +40,9 @@ LINK_ONLY_HOSTS = {
     "about.sourcegraph.com", "auth.abuse.ch", "blockchair.com", "developers.google.com",
     "docs.alienvault.com", "docs.github.com", "docs.gitlab.com", "docs.gravatar.com",
     "docs.virustotal.com", "eth.blockscout.com", "ethereum.org", "etherscan.io",
-    "forms.icann.org", "github.com", "help.archive.org", "news.ycombinator.com",
+    "about.rdap.org", "github.com", "news.ycombinator.com",
     "safebrowsing.google.com", "support.github.com", "support.google.com", "www.bing.com",
-    "www.fcc.gov", "www.iana.org", "www.mediawiki.org",
+    "www.fcc.gov", "www.iana.org", "www.icann.org", "www.mediawiki.org",
 }
 
 

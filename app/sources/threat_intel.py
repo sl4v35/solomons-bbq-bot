@@ -421,7 +421,7 @@ def openphish(ctx: SourceContext) -> dict[str, Any]:
     category="threat-intel",
     applies_to=("domain",),
     sends="The domain name, sent to VirusTotal with YOUR API key.",
-    docs="https://docs.virustotal.com/reference/domains-domain",
+    docs="https://docs.virustotal.com/reference/domain-info",
     key_name="virustotal",
     description="Vendor detection counts for the domain. Disabled unless you provide a VirusTotal API key.",
 )

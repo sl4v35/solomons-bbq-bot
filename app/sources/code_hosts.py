@@ -447,7 +447,9 @@ def codeberg_user(ctx: SourceContext) -> dict[str, Any]:
     category="code-hosting",
     applies_to=("username",),
     sends="The username (public user lookup).",
-    docs="https://keybase.io/docs/api/1.0/calling",
+    # Keybase retired its public API docs site; the client repository is the
+    # remaining authoritative reference for the endpoints this source calls.
+    docs="https://github.com/keybase/client",
     description="Keybase account, self-reported profile fields and cryptographic proofs of other social/code accounts.",
 )
 def keybase_user(ctx: SourceContext) -> dict[str, Any]:
@@ -540,7 +542,7 @@ def keybase_user(ctx: SourceContext) -> dict[str, Any]:
     category="code-hosting",
     applies_to=("username",),
     sends="The username (public profile lookup via the Algolia-hosted HN API).",
-    docs="https://hn.algolia.com/api/",
+    docs="https://hn.algolia.com/api",
     description="Public Hacker News account: karma, about text and account age.",
 )
 def hackernews_user(ctx: SourceContext) -> dict[str, Any]:
@@ -605,7 +607,7 @@ def hackernews_user(ctx: SourceContext) -> dict[str, Any]:
     category="code-hosting",
     applies_to=("email", "username"),
     sends="The email address or username, as a literal search pattern, to Sourcegraph's public code search.",
-    docs="https://sourcegraph.com/docs/api/stream_protocol",
+    docs="https://sourcegraph.com/docs/api/stream-api",
     description="Looks for the exact string inside public source code indexed by Sourcegraph (streaming SSE API).",
 )
 def sourcegraph_code(ctx: SourceContext) -> dict[str, Any]:
