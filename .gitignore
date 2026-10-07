@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+
+# --- Node (frontend smoke tests only, never part of the app) ---
+node_modules/
+package-lock.json
+.tools-smoke/
+
+# --- Secrets & local data: never commit keys, credentials or scan results ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+scan-history*.json
+*-export.json
+local-data/
+data/
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Runtime artifacts ---
+*.log
+/logs/
+tmp/

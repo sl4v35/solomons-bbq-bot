@@ -1,0 +1,7 @@
+# Verdigris is a working prototype with no authentication.
+# Crawlers should not index it or hit its API.
+User-agent: *
+Disallow: /api/
+Disallow: /health
+Disallow: /healthz
+Allow: /$

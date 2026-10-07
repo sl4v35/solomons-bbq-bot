@@ -1,0 +1,222 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + integration tests (offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile the app
+        run: python -m compileall -q app tools tests
+
+      - name: Assert the backend is standard-library only
+        run: |
+          python - <<'PY'
+          import ast, pathlib, sys
+          allowed = set(sys.stdlib_module_names) | {"app", "tests", "tools", "stubs"}
+          bad = []
+          for path in sorted(pathlib.Path("app").rglob("*.py")):
+              tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      names = [a.name.split(".")[0] for a in node.names]
+                  elif isinstance(node, ast.ImportFrom):
+                      names = [] if node.level else [(node.module or "").split(".")[0]]
+                  else:
+                      continue
+                  for name in names:
+                      if name and name not in allowed:
+                          bad.append(f"{path}: {name}")
+          if bad:
+              print("third-party imports found (the Docker image installs nothing):")
+              print("\n".join(bad))
+              raise SystemExit(1)
+          print("backend imports are standard-library only")
+          PY
+
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -t tests -v
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Frontend syntax check
+        run: |
+          node --check app/static/app.js
+          for f in app/static/index.html app/static/manifest.webmanifest; do
+            test -s "$f" || { echo "$f is empty"; exit 1; }
+          done
+          python -c "import json,sys; json.load(open('app/static/manifest.webmanifest'))" \
+            || echo "::warning::manifest.webmanifest is not strict JSON (browsers allow comments)"
+
+      - name: No secrets or personal data in tracked files
+        run: |
+          set -e
+          # Only tracked files are scanned, so local scratch data can never leak in.
+          files=$(git ls-files)
+          echo "$files" | grep -q '^app/' || { echo "app/ is not tracked"; exit 1; }
+          # Key-shaped strings (long opaque tokens) - excluding tests/fixtures and docs.
+          if echo "$files" | grep -vE '^(tests/|docs/|README.md|.env.example)' | xargs grep -nIE \
+            '(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-[A-Za-z0-9]{32,}|[0-9a-f]{32}:[0-9a-f]{32})' ; then
+            echo "possible secret in a tracked file"; exit 1
+          fi
+          # .env must never be tracked; .env.example must be.
+          if echo "$files" | grep -qE '(^|/)\.env$'; then echo ".env is tracked"; exit 1; fi
+          echo "$files" | grep -q '^\.env\.example$' || { echo ".env.example missing"; exit 1; }
+          # Scan history / export artifacts must never be tracked.
+          if echo "$files" | grep -qE '(scan-history.*\.json|.*-export\.json)$'; then
+            echo "scan history or export artifact is tracked"; exit 1
+          fi
+          echo "no secrets or scan artifacts tracked"
+
+  image:
+    name: Docker build + container smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t verdigris:ci .
+
+      - name: Start the container on a hosting-style injected PORT
+        run: |
+          docker run -d --name verdigris -p 8080:8080 -e PORT=8080 -e REQUEST_LOG=1 verdigris:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then echo "healthy after ${i}s"; break; fi
+            sleep 1
+          done
+
+      - name: Smoke test the running container
+        run: |
+          set -e
+          curl -fsS http://127.0.0.1:8080/health | tee /tmp/health.json | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); assert d['status']=='ok', d; assert d['sources_total']>=20, d; print('health ok:', d['app'], d['version'], d['sources_total'], 'sources')"
+          for p in / /styles.css /app.js /favicon.svg /manifest.webmanifest /robots.txt; do
+            curl -fsS -o /dev/null -w "%{http_code} %{content_type} $p\n" "http://127.0.0.1:8080$p"
+          done
+          curl -fsS -o /dev/null -w "detect %{http_code}\n" \
+            "http://127.0.0.1:8080/api/detect?identifier=example.com"
+          # A full scan round-trip using the local-only phone source: proves the job
+          # store, polling contract and report engine work inside the image without
+          # depending on any third-party API being up.
+          scan=$(curl -fsS -X POST http://127.0.0.1:8080/api/scan \
+            -H 'Content-Type: application/json' \
+            -d '{"identifier":"+442071234567","mode":"report"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['scan_id'])")
+          echo "scan_id=$scan"
+          for i in $(seq 1 30); do
+            state=$(curl -fsS "http://127.0.0.1:8080/api/scans/$scan" | python3 -c "import json,sys; print(json.load(sys.stdin).get('state',''))")
+            [ "$state" = "complete" ] && break
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:8080/api/scans/$scan" | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)
+          assert d['state']=='complete', d['state']
+          assert d['summary']['engine']=='deterministic-rules-v1', d['summary']['engine']
+          assert d['coverage']['third_party_queries']==0, d['coverage']
+          print('container scan round-trip ok:', len(d['sources']), 'source(s)', d['summary']['data_confidence'])
+          "
+          # Path traversal and unknown routes must not leak anything.
+          code=$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8080/../Dockerfile')
+          [ "$code" = "404" ] || [ "$code" = "400" ] || { echo "traversal returned $code"; exit 1; }
+
+      - name: Container runs as a non-root user
+        run: |
+          docker exec verdigris id -u | tee /tmp/uid
+          test "$(docker exec verdigris id -u)" != "0"
+
+      - name: Show container logs
+        if: always()
+        run: docker logs verdigris | tail -50
+
+  ui:
+    name: Frontend smoke test (jsdom against a live server)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Start the app on an injected PORT
+        run: |
+          PORT=8080 REQUEST_LOG=1 nohup python -m app.server > /tmp/verdigris.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then echo "up after ${i}s"; break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/health | head -c 300; echo
+
+      - name: Install jsdom (dev-only; the app itself has no JS dependencies)
+        run: |
+          mkdir -p .tools-smoke
+          cd .tools-smoke
+          npm init -y >/dev/null
+          npm install jsdom --no-audit --no-fund --loglevel=error
+
+      - name: Drive the UI with a local-only identifier (no upstream dependency)
+        run: node tools/frontend_smoke.mjs --base-url http://127.0.0.1:8080 --identifier "+442071234567"
+
+      - name: Drive the UI with a real domain (exercises the live sources)
+        continue-on-error: true
+        run: node tools/frontend_smoke.mjs --base-url http://127.0.0.1:8080 --identifier example.com --wait 90000
+
+      - name: Show server log
+        if: always()
+        run: tail -40 /tmp/verdigris.log
+
+  links:
+    name: External link check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check every user-facing URL
+        run: python tools/link_check.py --jobs 8
+
+  live:
+    name: Live upstream probe (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Upstreams rate-limit and occasionally go down, so this job reports rather
+      # than blocks - except for crashes in our own code, which exit non-zero.
+      - name: Probe every source against the real APIs
+        continue-on-error: true
+        run: python tools/live_probe.py
