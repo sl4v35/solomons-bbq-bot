@@ -179,9 +179,12 @@ jobs:
       - name: Install jsdom (dev-only; the app itself has no JS dependencies)
         run: |
           mkdir -p .tools-smoke
+          # A hand-written package.json: `npm init -y` rejects the dotted directory
+          # name, and the app itself must stay free of any JS dependency manifest.
+          printf '{"name":"verdigris-smoke","private":true,"version":"0.0.0"}\n' > .tools-smoke/package.json
           cd .tools-smoke
-          npm init -y >/dev/null
           npm install jsdom --no-audit --no-fund --loglevel=error
+          node -e "require('./node_modules/jsdom'); console.log('jsdom installed')"
 
       - name: Drive the UI with a local-only identifier (no upstream dependency)
         run: node tools/frontend_smoke.mjs --base-url http://127.0.0.1:8080 --identifier "+442071234567"

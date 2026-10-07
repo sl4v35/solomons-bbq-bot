@@ -54,6 +54,15 @@ def row(source_id: str, status: str, elapsed: str, detail: str) -> str:
     return f"  {source_id:<{WIDTHS[0]}} {status:<{WIDTHS[1]}} {elapsed:>{WIDTHS[2]}}  {detail[:WIDTHS[3]]}"
 
 
+def annotate(level: str, title: str, message: str) -> None:
+    """Emit a GitHub Actions annotation (readable through the API without raw logs)."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    safe_title = title.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    safe_message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::{level} title={safe_title}::{safe_message}")
+
+
 def probe_sources(timeout_per_source: float) -> int:
     from app.config import SETTINGS
     from app.http_client import DEFAULT_FETCHER
@@ -79,6 +88,7 @@ def probe_sources(timeout_per_source: float) -> int:
             result = None
             print(row(spec.id, "CRASH", f"{(time.monotonic() - started) * 1000:.0f}ms",
                       f"{type(exc).__name__}: {exc}"))
+            annotate("error", f"{spec.id} CRASHED", f"{type(exc).__name__}: {exc}")
             crashed.append(spec.id)
             continue
         elapsed = f"{result.elapsed_ms:.0f}ms"
@@ -89,11 +99,17 @@ def probe_sources(timeout_per_source: float) -> int:
         if result.status in ("ok", "no_match"):
             checked.append(spec.id)
         print(row(spec.id, result.status, elapsed, detail))
+        level = "error" if result.status == "error" else (
+            "notice" if result.status in ("ok", "no_match") else "warning")
+        annotate(level, f"{spec.id}: {result.status} ({elapsed})", detail[:400])
         if not timeout_per_source:
             continue
 
     print("\nstatus counts: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     print(f"sources that really answered (ok/no_match): {len(checked)}/{len(specs)}")
+    annotate("notice", "live probe summary",
+             f"{len(checked)}/{len(specs)} sources answered; "
+             + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
     if crashed:
         print(f"\nAPP BUGS - these sources crashed or returned 'error': {', '.join(crashed)}")
         return 1
@@ -230,6 +246,8 @@ def probe_deployment(base_url: str, scan_identifier: str, wait_seconds: float) -
           headers.get("X-Content-Type-Options") == "nosniff" or "Content-Security-Policy" in headers,
           f"CSP={'yes' if 'Content-Security-Policy' in headers else 'no'}")
 
+    for failure in failures:
+        annotate("error", "deployment check failed", failure)
     if notes:
         print("\nnotes:")
         for note in notes:

@@ -31,6 +31,7 @@ import os
 import re
 import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -82,8 +83,7 @@ def collect_urls() -> list[tuple[str, str]]:
     return unique
 
 
-def check(url: str) -> tuple[str, int, str]:
-    """Return ``(url, status, detail)``.  ``status`` 0 means a transport failure."""
+def _once(url: str) -> tuple[int, str]:
     request = urllib.request.Request(url, headers={
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
@@ -92,18 +92,43 @@ def check(url: str) -> tuple[str, int, str]:
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             response.read(MAX_BYTES)
-            return url, response.status, response.geturl()
+            return response.status, response.geturl()
     except urllib.error.HTTPError as exc:
-        return url, exc.code, str(exc.reason or "")
+        return exc.code, str(exc.reason or "")
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
         if isinstance(reason, socket.timeout):
-            return url, 0, "timeout"
-        return url, 0, str(reason)
+            return 0, "timeout"
+        return 0, str(reason)
     except (socket.timeout, TimeoutError):
-        return url, 0, "timeout"
+        return 0, "timeout"
     except Exception as exc:  # noqa: BLE001 - report, never crash the checker
-        return url, 0, f"{type(exc).__name__}: {exc}"
+        return 0, f"{type(exc).__name__}: {exc}"
+
+
+def check(url: str, attempts: int = 2) -> tuple[str, int, str]:
+    """Return ``(url, status, detail)``.  ``status`` 0 means a transport failure.
+
+    Transport failures are retried: a runner's transient DNS/TLS blip must not be
+    reported as a dead link.  Only a definitive HTTP 404/410 is.
+    """
+    status, detail = 0, ""
+    for attempt in range(max(1, attempts)):
+        status, detail = _once(url)
+        if status != 0:
+            break
+        if attempt + 1 < max(1, attempts):
+            time.sleep(1.5 * (attempt + 1))
+    return url, status, detail
+
+
+def annotate(level: str, title: str, message: str) -> None:
+    """Emit a GitHub Actions annotation so results are readable without raw logs."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    safe_title = title.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    safe_message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::{level} title={safe_title}::{safe_message}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,14 +157,20 @@ def main(argv: list[str] | None = None) -> int:
             if 200 <= status < 400:
                 ok += 1
                 print(f"  ok    {status}  {url}  [{origin}]")
-            elif status in DEAD_STATUSES or status == 0:
+            elif status in DEAD_STATUSES:
                 dead.append((url, status, detail))
-                print(f"  DEAD  {status or 'ERR'}  {url}  [{origin}]  {detail}")
+                print(f"  DEAD  {status}  {url}  [{origin}]  {detail}")
+                annotate("error", f"dead link ({status})", f"{url} [{origin}]")
             else:
+                # Includes transport failures: after a retry those are usually a
+                # runner network blip or a host that blocks datacentre IPs.
                 soft.append((url, status, detail))
-                print(f"  soft  {status}  {url}  [{origin}]  {detail}")
+                print(f"  soft  {status or 'ERR'}  {url}  [{origin}]  {detail}")
+                annotate("warning", f"unreachable or blocked ({status or 'transport'})",
+                         f"{url} [{origin}] {detail}")
 
     print(f"\n{ok} ok, {len(soft)} soft failure(s), {len(dead)} dead")
+    annotate("notice", "link check summary", f"{ok} ok, {len(soft)} soft, {len(dead)} dead of {len(urls)}")
     if soft:
         print("soft failures are usually bot-blocking (403/429) or a temporary upstream 5xx; "
               "re-check from a normal browser before changing a link.")

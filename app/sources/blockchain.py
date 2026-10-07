@@ -54,7 +54,8 @@ def _format_wei(wei: int) -> str:
     category="blockchain",
     applies_to=("bitcoin",),
     sends="The Bitcoin address (public blockchain lookup).",
-    docs="https://github.com/Blockstream/electrs/blob/master/doc/rest.md",
+    # The REST API is documented in the electrs README (the old doc/rest.md is gone).
+    docs="https://github.com/Blockstream/electrs",
     description="Transaction count, funded/spent totals and current balance for a mainnet Bitcoin address.",
 )
 def blockstream_btc(ctx: SourceContext) -> dict[str, Any]:

@@ -68,9 +68,14 @@ const WAIT_MS = Number(arg("wait", "60000"));
 const problems = [];
 const notes = [];
 
+const IN_CI = process.env.GITHUB_ACTIONS === "true";
+
 function fail(message) {
   problems.push(message);
   console.error(`  FAIL  ${message}`);
+  // Surface failures as annotations: they are readable through the GitHub API
+  // even where raw logs are not.
+  if (IN_CI) console.log(`::error title=UI smoke test::${message.replace(/[%\r\n]/g, " ").slice(0, 400)}`);
 }
 function ok(message) {
   console.log(`  ok    ${message}`);
