@@ -1,0 +1,23 @@
+# Keep the runtime image minimal and free of anything that is not the app.
+.git
+.gitignore
+.github
+tests
+tools
+docs
+*.md
+!app/static/*.md
+.env
+.env.*
+node_modules
+.tools-smoke
+package*.json
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+coverage
+local-data
+data
+*.log

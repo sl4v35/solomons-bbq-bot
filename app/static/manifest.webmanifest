@@ -1,0 +1,20 @@
+{
+  "name": "Verdigris",
+  "short_name": "Verdigris",
+  "description": "Evidence-first public-source intelligence and privacy checks over free public sources. Independent project, not affiliated with Serus.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#070d12",
+  "theme_color": "#070d12",
+  "categories": ["security", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

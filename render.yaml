@@ -1,0 +1,51 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+#
+# IMPORTANT: this must be a **Web Service** (not a Static Site): the app serves
+# its own API from the same origin, so a static host cannot run it.
+# The plan is explicitly the Free plan. No paid resource is requested anywhere
+# in this file, and no credit card is needed for a free web service.
+
+services:
+  - type: web
+    name: verdigris
+    # Free plan, Docker runtime, single instance (the free tier allows only one)
+    plan: free
+    runtime: docker
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    # Free instances are spun down when idle; the first request after a pause
+    # can take 30-60s to wake the container.
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: REQUEST_LOG
+        value: "1"
+      - key: TRUST_PROXY_HEADERS
+        value: "1"
+      # --- all optional: leave empty and the related source is honestly
+      # --- reported as "Not checked" instead of being faked or skipped. ---
+      - key: ACCESS_TOKEN
+        value: ""          # set this to require a token for /api/* (see README)
+      - key: HIBP_API_KEY
+        value: ""          # unlocks Have I Been Pwned API v3 email breach + paste lookups (paid)
+      - key: VIRUSTOTAL_API_KEY
+        value: ""          # unlocks VirusTotal domain reports
+      - key: ABUSECH_AUTH_KEY
+        value: ""          # free abuse.ch Auth-Key: full URLhaus host history
+      - key: GITHUB_TOKEN
+        value: ""          # raises GitHub API rate limits
+      - key: DISABLED_SOURCES
+        value: ""          # comma-separated source ids to turn off honestly
+      # --- tuning (defaults shown; safe to leave as they are) ---
+      - key: ETH_RPC_URLS
+        value: ""
+
+# Deploy from a phone:
+#   https://render.com/deploy?repo=https://github.com/sl4v35/solomons-bbq-bot&branch=arena/6d72ca39-solomons-bbq-bot
+# Sign in with GitHub, press "Apply", wait for the Docker build, then open the
+# *.onrender.com URL that Render shows you.

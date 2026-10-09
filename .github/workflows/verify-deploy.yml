@@ -1,0 +1,51 @@
+name: Verify deployment
+
+# Manual, on-demand post-deploy verification. Runs tools/live_probe.py against a
+# deployed instance from a GitHub runner (i.e. from outside the host): health,
+# static assets, /api/meta, /api/detect, a full scan round-trip, the k-anonymity
+# password-range endpoint, path-traversal refusal and security headers.
+# Never runs on push or pull_request.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Deployed base URL to verify, e.g. https://verdigris.onrender.com"
+        required: true
+        type: string
+      identifier:
+        description: "Identifier for the scan round-trip"
+        required: false
+        default: "example.com"
+        type: string
+      wait_seconds:
+        description: "Seconds to wait for the scan to finish (covers free-tier cold starts)"
+        required: false
+        default: "180"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-deploy
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Post-deploy verification probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Probe the deployment
+        run: >-
+          python3 tools/live_probe.py
+          --base-url "${{ inputs.base_url }}"
+          --identifier "${{ inputs.identifier }}"
+          --wait "${{ inputs.wait_seconds }}"
