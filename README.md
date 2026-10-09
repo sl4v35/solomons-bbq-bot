@@ -277,7 +277,6 @@ correct provider process. Verdigris will not submit anything for you.
 
 ## Licence
 
-No licence file has been added yet, so the default (all rights reserved to the repository owner)
-applies. Say the word and an MIT `LICENSE` will be added. The name "Verdigris" was chosen for this
-project; it is not a trademark of anyone else's product, and no affiliation with Serus is implied
-or claimed.
+Released under the [MIT License](LICENSE): free to use, modify and redistribute, with no
+warranty of any kind. The name "Verdigris" was chosen for this project; it is not a trademark of
+anyone else's product, and no affiliation with Serus is implied or claimed.
