@@ -156,6 +156,13 @@ async function main() {
     else ok(`backend pill: ${pill.textContent.trim()}`);
   }
 
+  // The offline banner must stay hidden while the backend answers. (A CSS rule
+  // that sets display on .banner would override the hidden attribute and leave
+  // this banner permanently visible - caught by a real phone screenshot.)
+  const banner = document.getElementById("offline-banner");
+  if (banner && banner.hidden) ok("offline banner stays hidden while the backend is online");
+  else fail("the offline banner is not hidden although the backend answered");
+
   const title = document.querySelector("h1") ? document.querySelector("h1").textContent : "";
   if (/verdigris/i.test(title)) ok(`product name rendered: ${title.trim()}`);
   else fail(`product name missing from the header (got "${title}")`);

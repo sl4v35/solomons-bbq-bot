@@ -65,6 +65,11 @@ ul { margin: 0; padding-left: 1.1rem; }
 .muted { color: var(--text-dim); }
 .small { font-size: 0.82rem; }
 .hidden { display: none !important; }
+/* The hidden attribute/property must always win. Components like the offline
+   banner set a display value in their own class rules (.banner { display: flex }),
+   and an author display would override the UA's [hidden] { display: none },
+   leaving the banner permanently visible even when the backend is online. */
+[hidden] { display: none !important; }
 
 .skip-link {
   position: absolute; left: -9999px; top: 0; z-index: 100;

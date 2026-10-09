@@ -268,6 +268,7 @@ class FrontendTests(unittest.TestCase):
         self.static = REPO / "app" / "static"
         self.html = (self.static / "index.html").read_text()
         self.js = (self.static / "app.js").read_text()
+        self.css = (self.static / "styles.css").read_text()
 
     def test_all_declared_static_files_exist(self):
         for name in STATIC_FILES:
@@ -280,6 +281,13 @@ class FrontendTests(unittest.TestCase):
         self.assertNotIn("<style", self.html)
         self.assertNotIn("onclick=", self.html)
         self.assertNotIn("javascript:", self.html)
+
+    def test_hidden_attribute_beats_class_display_rules(self):
+        # .banner sets display:flex, which would otherwise override the UA's
+        # [hidden] { display: none } and leave the offline banner permanently
+        # visible even when the backend is online (caught by a phone screenshot
+        # of the deployed app). The stylesheet must carry an explicit guard.
+        self.assertRegex(self.css, r"\[hidden\]\s*\{[^}]*display:\s*none\s*!important")
 
     def test_assets_are_same_origin(self):
         for match in re.finditer(r'(?:src|href)="([^"]+)"', self.html):
