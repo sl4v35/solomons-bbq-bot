@@ -240,6 +240,11 @@ syntax check, a Docker build + container smoke test, the link check, and the liv
 every push. A failing test suite, a dead link or a crashed source is published as a check
 annotation, so results are readable without opening the raw job logs.
 
+To verify a **deployment** from outside the host, run the **Verify deployment** workflow manually
+(**Actions → Verify deployment → Run workflow**) with the service's base URL — it wraps
+`tools/live_probe.py --base-url …` and checks health, static assets, the API, a full scan
+round-trip, the password-range endpoint, path-traversal refusal and security headers.
+
 ---
 
 ## Repository layout

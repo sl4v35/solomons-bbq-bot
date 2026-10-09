@@ -221,7 +221,10 @@ def probe_sources(timeout_per_source: float) -> int:
 
 
 def _http(base_url: str, path: str, *, method: str = "GET", body: dict | None = None,
-          timeout: float = 30.0) -> tuple[int, dict, bytes]:
+          # Free hosts (Render free tier) spin down after inactivity and the first
+          # request after a cold start can take 50s+, so the default timeout is
+          # generous; the scan poll loop below has its own deadline.
+          timeout: float = 90.0) -> tuple[int, dict, bytes]:
     url = base_url.rstrip("/") + path
     data = json.dumps(body).encode() if body is not None else None
     headers = {"Accept": "application/json", "User-Agent": "VerdigrisDeployProbe/1.0"}
